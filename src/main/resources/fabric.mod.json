@@ -3,15 +3,11 @@
 	"id": "berlioz",
 	"version": "${version}",
 	"name": "Berlioz",
-	"description": "This is an example description! Tell everyone what your mod is about!",
+	"description": "Play music from YouTube, SoundCloud and direct audio links in-game.",
 	"authors": [
-		"Me!"
+		"Vainerii"
 	],
-	"contact": {
-		"homepage": "https://fabricmc.net/",
-		"sources": "https://github.com/FabricMC/fabric-example-mod"
-	},
-	"license": "CC0-1.0",
+	"license": "MIT",
 	"icon": "assets/berlioz/icon.png",
 	"environment": "*",
 	"entrypoints": {
@@ -20,10 +16,12 @@
 		],
 		"client": [
 			"vai.berlioz.client.BerliozClient"
+		],
+		"modmenu": [
+			"vai.berlioz.client.ModMenuIntegration"
 		]
 	},
 	"mixins": [
-		"berlioz.mixins.json",
 		{
 			"config": "berlioz.client.mixins.json",
 			"environment": "client"
@@ -31,8 +29,19 @@
 	],
 	"depends": {
 		"fabricloader": ">=0.19.2",
-		"minecraft": "~1.21.8",
-		"java": ">=21",
-		"fabric-api": "*"
+		"minecraft": ">=26.1.2",
+		"java": ">=25",
+		"fabric-api": "*",
+		"yet_another_config_lib_v3": ">=3.9.2",
+		"modmenu": ">=18.0.0-beta.1"
+	},
+
+	"custom": {
+		"modmenu": {
+			"links": {
+				"modmenu.discord": ""
+			},
+			"update_checker": false
+		}
 	}
 }

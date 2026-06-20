@@ -1,5 +1,5 @@
 plugins {
-	id 'net.fabricmc.fabric-loom-remap' version "${loom_version}"
+	id 'net.fabricmc.fabric-loom' version "${loom_version}"
 	id 'maven-publish'
 }
 
@@ -7,11 +7,19 @@ version = project.mod_version
 group = project.maven_group
 
 repositories {
-	// Add repositories to retrieve artifacts from in here.
-	// You should only use this when depending on other mods because
-	// Loom adds the essential maven repositories to download Minecraft and libraries from automatically.
-	// See https://docs.gradle.org/current/userguide/declaring_repositories.html
-	// for more information about repositories.
+	mavenCentral()
+	maven {
+		name = "Gegy"
+		url = uri("https://maven.gegy.dev")
+	}
+	maven {
+		name = "Xander Maven"
+		url = uri("https://maven.isxander.dev/releases")
+	}
+	maven {
+		name = "Terraformers"
+		url = "https://maven.terraformersmc.com/"
+	}
 }
 
 loom {
@@ -29,12 +37,28 @@ loom {
 dependencies {
 	// To change the versions see the gradle.properties file
 	minecraft "com.mojang:minecraft:${project.minecraft_version}"
-	mappings loom.officialMojangMappings()
-	modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
+	implementation "net.fabricmc:fabric-loader:${project.loader_version}"
 
 	// Fabric API. This is technically optional, but you probably want it anyway.
-	modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
-	
+	implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
+	// Client-only module the fabric-api meta's default variant doesn't pull in (split source sets);
+	// needed for KeyMappingHelper (the M keybind that opens the playlist screen).
+	implementation fabricApi.module("fabric-key-mapping-api-v1", project.fabric_api_version)
+	// Client commands (the /berlioztrust consent command, clickable from the trust prompt).
+	implementation fabricApi.module("fabric-command-api-v2", project.fabric_api_version)
+	// Client message events (ClientReceiveMessageEvents), to capture WorldEdit chat feedback.
+	implementation fabricApi.module("fabric-message-api-v1", project.fabric_api_version)
+
+	// For spruce
+	include(implementation("dev.lambdaurora:spruceui:${project.spruceui_version}"))
+	include("dev.yumi.mc.core:yumi-mc-foundation:1.0.0-beta.2+26.1")
+
+	// MP3 + OGG support via javax.sound.sampled SPI
+	include(implementation("com.googlecode.soundlibs:mp3spi:1.9.5.4"))
+	include(implementation("com.googlecode.soundlibs:vorbisspi:1.0.3.3"))
+
+	implementation "dev.isxander:yet-another-config-lib:${project.yacl_version}"
+	implementation("com.terraformersmc:modmenu:${project.modmenu_version}")
 }
 
 processResources {
@@ -47,7 +71,7 @@ processResources {
 }
 
 tasks.withType(JavaCompile).configureEach {
-	it.options.release = 21
+	it.options.release = 25
 }
 
 java {
@@ -56,8 +80,8 @@ java {
 	// If you remove this line, sources will not be generated.
 	withSourcesJar()
 
-	sourceCompatibility = JavaVersion.VERSION_21
-	targetCompatibility = JavaVersion.VERSION_21
+	sourceCompatibility = JavaVersion.VERSION_25
+	targetCompatibility = JavaVersion.VERSION_25
 }
 
 jar {
