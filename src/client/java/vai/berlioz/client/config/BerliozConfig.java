@@ -34,8 +34,8 @@ public class BerliozConfig {
 
     // General
     @SerialEntry public float volGlobal = 1.0f;
-    @SerialEntry public float volAmbient = 1.0f;
-    @SerialEntry public float volDj = 1.0f;
+    @SerialEntry public float volAmbient = 0.4f;
+    @SerialEntry public float volDj = 0.8f;
     @SerialEntry public float volServer = 1.0f;
     // @SerialEntry public float volSound = 1.0f;
     @SerialEntry public boolean coverMcSounds = true;

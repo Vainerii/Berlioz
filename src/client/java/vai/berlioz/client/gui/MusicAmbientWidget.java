@@ -9,6 +9,7 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.client.player.LocalPlayer;
+import net.minecraft.client.renderer.RenderPipelines;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.FontDescription;
@@ -41,6 +42,10 @@ public class MusicAmbientWidget extends SpruceContainerWidget {
             Identifier.fromNamespaceAndPath("berlioz", "icon/playlist_add");
     private static final Identifier ICON_SETTINGS =
             Identifier.fromNamespaceAndPath("berlioz", "icon/settings");
+    private static final Identifier ICON_TELEPORT =
+            Identifier.fromNamespaceAndPath("berlioz", "icon/teleport");
+    private static final Identifier ICON_EDIT =
+            Identifier.fromNamespaceAndPath("berlioz", "icon/edit");
 
     private static final String[] ARROWS = {"↑", "↗", "→", "↘", "↓", "↙", "←", "↖"};
 
@@ -441,12 +446,12 @@ public class MusicAmbientWidget extends SpruceContainerWidget {
             for (int i = 0; i < zones.size(); i++) {
                 int entryY = y + INSET - this.scrollPx + i * rowStride();
                 if (entryY + ENTRY_H <= y || entryY >= y + h) continue;
-                drawEntry(g, font, zones.get(i), p, x + INSET, entryY, w - INSET * 2);
+                drawEntry(g, font, zones.get(i), p, x + INSET, entryY, w - INSET * 2, mx, my);
             }
             g.disableScissor();
         }
 
-        private void drawEntry(SpruceGuiGraphics g, Font font, AmbientZoneData zone, LocalPlayer p, int ex, int ey, int ew) {
+        private void drawEntry(SpruceGuiGraphics g, Font font, AmbientZoneData zone, LocalPlayer p, int ex, int ey, int ew, int mx, int my) {
             boolean current = MusicAmbientWidget.this.editing && zone.id().equals(MusicAmbientWidget.this.editId);
             g.fill(ex, ey, ex + ew, ey + ENTRY_H, current ? GuiStyle.ENTRY_CURRENT : GuiStyle.ENTRY_BG);
 
@@ -470,15 +475,17 @@ public class MusicAmbientWidget extends SpruceContainerWidget {
             drawText(g, font, carlito("  " + dist), ex + 2 + 8, ey + 14, GuiStyle.TEXT_DIM);
 
             int btnX = ex + ew - MINI_W;
-            miniButton(g, font, "TP", btnX, ey);
-            miniButton(g, font, "Ed", btnX, ey + MINI_H + 2);
+            miniButton(g, ICON_TELEPORT, btnX, ey, mx, my);
+            miniButton(g, ICON_EDIT, btnX, ey + MINI_H + 2, mx, my);
         }
 
-        private void miniButton(SpruceGuiGraphics g, Font font, String label, int bx, int by) {
-            g.fill(bx, by, bx + MINI_W, by + MINI_H, GuiStyle.BTN_BG);
+        private void miniButton(SpruceGuiGraphics g, Identifier icon, int bx, int by, int mx, int my) {
+            boolean hovered = mx >= bx && mx < bx + MINI_W && my >= by && my < by + MINI_H;
+            g.fill(bx, by, bx + MINI_W, by + MINI_H, hovered ? GuiStyle.BTN_HOVER : GuiStyle.BTN_BG);
             drawBorder(g, bx, by, MINI_W, MINI_H, GuiStyle.BTN_BORDER);
-            int textW = font.width(label);
-            drawText(g, font, carlito(label), bx + (int) ((MINI_W - textW * GuiStyle.TEXT_SCALE) / 2f), by + 2, GuiStyle.TEXT);
+            int iconSize = MINI_H - 2;
+            g.blitSprite(RenderPipelines.GUI_TEXTURED, icon,
+                    bx + (MINI_W - iconSize) / 2, by + 1, iconSize, iconSize);
         }
     }
 
