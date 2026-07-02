@@ -101,6 +101,10 @@ public class ExternalMusicManager {
         return music.getTrackName();
     }
 
+    public String getTrackUrl() {
+        return music.getTrackUrl();
+    }
+
     public void setSliderGain(float gain) {
         music.setSliderGain(gain);
     }

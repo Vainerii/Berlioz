@@ -18,6 +18,7 @@ public final class MusicChannel {
     private final String name;
 
     private MusicSourcePlayer currentPlayer = null;
+    private String currentUrl = "";
 
     private Bus bus = Bus.DJ;
     private float sliderGain = 1f;
@@ -62,6 +63,7 @@ public final class MusicChannel {
         }
         if (currentPlayer != null) currentPlayer.stop();
         this.bus = bus;
+        this.currentUrl = url;
         LOGGER.info("[{}] Loading ordered URL at {}s: {}", name, offsetSeconds, url);
         Consumer<String> reportAndAdvance = err -> {
             onError.accept(err);
@@ -110,6 +112,10 @@ public final class MusicChannel {
 
     public String getTrackName() {
         return (currentPlayer != null) ? currentPlayer.getName() : "";
+    }
+
+    public String getTrackUrl() {
+        return (currentPlayer != null) ? currentUrl : "";
     }
 
     public boolean isActive() {

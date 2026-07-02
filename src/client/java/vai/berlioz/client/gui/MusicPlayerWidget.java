@@ -9,8 +9,11 @@ import dev.lambdaurora.spruceui.widget.AbstractSpruceWidget;
 import dev.lambdaurora.spruceui.widget.container.SpruceContainerWidget;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
+import net.minecraft.client.gui.screens.ConfirmLinkScreen;
 import net.minecraft.client.input.MouseButtonEvent;
+import net.minecraft.client.renderer.RenderPipelines;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.Identifier;
 import net.minecraft.util.Mth;
 import vai.berlioz.client.config.BerliozConfig;
 import vai.berlioz.client.music.loader.ExternalMusicManager;
@@ -29,7 +32,10 @@ public class MusicPlayerWidget extends SpruceContainerWidget {
 
     private static final int REFRESH_TICK_DELAY = 5;
 
+    private static final int LINK_GAP = 2;
+
     private final ScaledLabel nameLabel;
+    private final LinkButton linkButton;
     private final VolumeSlider volumeSlider;
     private final ProgressBar progressBar;
     private final ScaledLabel elapsedLabel;
@@ -56,10 +62,17 @@ public class MusicPlayerWidget extends SpruceContainerWidget {
         int textHeight = (int) Math.ceil(Minecraft.getInstance().font.lineHeight * TEXT_SCALE);
         Component defaultName = Component.translatable("berlioz.player.defaultName");
 
+        int linkSize = textHeight;
+        int nameX = PADDING + linkSize + LINK_GAP;
+
         if (style == BerliozConfig.Style.MINIMAL) {
-            int contentWidth = width - MINIMAL_SLIDER_W - PADDING * 3;
+            this.linkButton = new LinkButton(
+                    Position.of(this, PADDING, (height - linkSize) / 2), linkSize);
+            this.addChild(this.linkButton);
+
+            int contentWidth = width - MINIMAL_SLIDER_W - PADDING * 3 - linkSize - LINK_GAP;
             this.nameLabel = new ScaledLabel(
-                    Position.of(this, PADDING, (height - textHeight) / 2),
+                    Position.of(this, nameX, (height - textHeight) / 2),
                     contentWidth, textHeight, TEXT_SCALE, SpruceTextAlignment.LEFT, defaultName);
             this.addChild(this.nameLabel);
 
@@ -73,9 +86,13 @@ public class MusicPlayerWidget extends SpruceContainerWidget {
             this.remainingLabel = null;
         } else {
             int contentWidth = width - VOLUME_WIDTH - PADDING * 3;
+            this.linkButton = new LinkButton(Position.of(this, PADDING, PADDING), linkSize);
+            this.addChild(this.linkButton);
+
             this.nameLabel = new ScaledLabel(
-                    Position.of(this, PADDING, PADDING),
-                    contentWidth, textHeight, TEXT_SCALE, SpruceTextAlignment.LEFT, defaultName);
+                    Position.of(this, nameX, PADDING),
+                    contentWidth - linkSize - LINK_GAP, textHeight, TEXT_SCALE,
+                    SpruceTextAlignment.LEFT, defaultName);
             this.addChild(this.nameLabel);
 
             int progressY = PADDING + textHeight + 4;
@@ -150,6 +167,30 @@ public class MusicPlayerWidget extends SpruceContainerWidget {
         if (gain <= 0f) return 0.0;
         if (gain >= 1f) return 1.0;
         return 1.0 + Math.log10(gain);
+    }
+
+    private static final class LinkButton extends AbstractSpruceWidget {
+        private static final Identifier ICON = Identifier.fromNamespaceAndPath("berlioz", "icon/link");
+
+        LinkButton(Position position, int size) {
+            super(position);
+            this.width = size;
+            this.height = size;
+        }
+
+        @Override
+        protected boolean onMouseClick(MouseButtonEvent event, boolean dbl) {
+            String url = ExternalMusicManager.getInstance().getTrackUrl();
+            if (url.isEmpty() || !url.startsWith("http")) return false;
+            ConfirmLinkScreen.confirmLinkNow(Minecraft.getInstance().screen, url, false);
+            return true;
+        }
+
+        @Override
+        protected void extractWidgetRenderState(SpruceGuiGraphics g, int mx, int my, float d) {
+            g.blitSprite(RenderPipelines.GUI_TEXTURED, ICON,
+                    this.getX(), this.getY(), this.getWidth(), this.getHeight());
+        }
     }
 
     private static final class ScaledLabel extends AbstractSpruceWidget {
