@@ -18,6 +18,7 @@ import net.minecraft.util.Mth;
 import vai.berlioz.client.config.BerliozConfig;
 import vai.berlioz.client.music.loader.ExternalMusicManager;
 
+import java.net.URI;
 import java.util.function.DoubleConsumer;
 
 public class MusicPlayerWidget extends SpruceContainerWidget {
@@ -182,7 +183,13 @@ public class MusicPlayerWidget extends SpruceContainerWidget {
         protected boolean onMouseClick(MouseButtonEvent event, boolean dbl) {
             String url = ExternalMusicManager.getInstance().getTrackUrl();
             if (url.isEmpty() || !url.startsWith("http")) return false;
-            ConfirmLinkScreen.confirmLinkNow(Minecraft.getInstance().screen, url, false);
+            URI uri;
+            try {
+                uri = URI.create(url);
+            } catch (IllegalArgumentException e) {
+                return false;
+            }
+            ConfirmLinkScreen.confirmLinkNow(Minecraft.getInstance().gui.screen(), uri, false);
             return true;
         }
 

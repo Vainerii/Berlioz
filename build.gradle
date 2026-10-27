@@ -51,7 +51,7 @@ dependencies {
 
 	// For spruce
 	include(implementation("dev.lambdaurora:spruceui:${project.spruceui_version}"))
-	include("dev.yumi.mc.core:yumi-mc-foundation:1.0.0-beta.2+26.1")
+	include("dev.yumi.mc.core:yumi-mc-foundation:1.1.3+26.2")
 
 	// MP3 + OGG support via javax.sound.sampled SPI
 	include(implementation("com.googlecode.soundlibs:mp3spi:1.9.5.4"))

@@ -58,7 +58,7 @@ public final class MusicPlayerOverlay {
 
     private void onHudRender(GuiGraphicsExtractor graphics, DeltaTracker deltaTracker) {
         Minecraft mc = Minecraft.getInstance();
-        if (mc.screen != null) return;
+        if (mc.gui.screen() != null) return;
         if (BerliozConfig.get().show != BerliozConfig.DisplayMode.ALWAYS) return;
         if (!baseVisible()) return;
         MusicPlayerWidget w = ensureWidget(mc);
@@ -80,7 +80,7 @@ public final class MusicPlayerOverlay {
 
     private boolean shownOverScreen() {
         if (!baseVisible()) return false;
-        var screen = Minecraft.getInstance().screen;
+        var screen = Minecraft.getInstance().gui.screen();
         if (screen instanceof MusicPlaylistScreen || screen instanceof AmbientZoneScreen
                 || screen instanceof YACLScreen) {
             return false;

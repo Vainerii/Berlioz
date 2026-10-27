@@ -56,9 +56,9 @@ public class MusicPlaylistScreen extends SpruceScreen {
         this.widget.onRepeatChanged = mode -> player.setRepeat(toPlayerRepeat(mode));
         this.widget.onRadiusChanged = player::setRadius;
         this.widget.onSeek = seconds -> player.seek((float) seconds);
-        this.widget.onOpenAmbient = () -> this.minecraft.setScreen(new AmbientZoneScreen(this.parent));
+        this.widget.onOpenAmbient = () -> this.minecraft.gui.setScreen(new AmbientZoneScreen(this.parent));
         this.widget.onOpenConfig =
-                () -> this.minecraft.setScreen(ModMenuIntegration.createConfigScreen(this));
+                () -> this.minecraft.gui.setScreen(ModMenuIntegration.createConfigScreen(this));
 
         this.addRenderableWidget(this.widget);
     }
@@ -108,7 +108,7 @@ public class MusicPlaylistScreen extends SpruceScreen {
 
     @Override
     public void onClose() {
-        this.minecraft.setScreen(this.parent);
+        this.minecraft.gui.setScreen(this.parent);
     }
 
     public MusicPlaylistWidget widget() {

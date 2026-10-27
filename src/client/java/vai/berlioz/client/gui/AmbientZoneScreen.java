@@ -30,9 +30,9 @@ public class AmbientZoneScreen extends SpruceScreen {
         super.init();
         this.widget = new MusicAmbientWidget(Position.of(0, 0), this.width, this.height);
         this.widget.onOpenPlaylist =
-                () -> this.minecraft.setScreen(new MusicPlaylistScreen(this.parent));
+                () -> this.minecraft.gui.setScreen(new MusicPlaylistScreen(this.parent));
         this.widget.onOpenConfig =
-                () -> this.minecraft.setScreen(ModMenuIntegration.createConfigScreen(this));
+                () -> this.minecraft.gui.setScreen(ModMenuIntegration.createConfigScreen(this));
         this.widget.onSave = BerliozClientNetwork::saveZone;
         this.widget.onDelete = BerliozClientNetwork::deleteZone;
         this.widget.onTp = AmbientZoneScreen::teleportToZone;
@@ -75,6 +75,6 @@ public class AmbientZoneScreen extends SpruceScreen {
 
     @Override
     public void onClose() {
-        this.minecraft.setScreen(this.parent);
+        this.minecraft.gui.setScreen(this.parent);
     }
 }
