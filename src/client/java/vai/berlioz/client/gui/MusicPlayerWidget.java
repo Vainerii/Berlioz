@@ -36,6 +36,7 @@ public class MusicPlayerWidget extends SpruceContainerWidget {
 
     private final ScaledLabel nameLabel;
     private final LinkButton linkButton;
+    private final MuteButton muteButton;
     private final VolumeSlider volumeSlider;
     private final ProgressBar progressBar;
     private final ScaledLabel elapsedLabel;
@@ -70,15 +71,21 @@ public class MusicPlayerWidget extends SpruceContainerWidget {
                     Position.of(this, PADDING, (height - linkSize) / 2), linkSize);
             this.addChild(this.linkButton);
 
-            int contentWidth = width - MINIMAL_SLIDER_W - PADDING * 3 - linkSize - LINK_GAP;
+            int muteSize = textHeight;
+            int contentWidth = width - MINIMAL_SLIDER_W - PADDING * 3 - linkSize - LINK_GAP
+                    - muteSize - LINK_GAP;
             this.nameLabel = new ScaledLabel(
                     Position.of(this, nameX, (height - textHeight) / 2),
                     contentWidth, textHeight, TEXT_SCALE, SpruceTextAlignment.LEFT, defaultName);
             this.addChild(this.nameLabel);
 
+            this.muteButton = new MuteButton(
+                    Position.of(this, width - PADDING - muteSize, (height - muteSize) / 2), muteSize);
+
             int sliderH = 4;
+            int sliderX = width - PADDING - muteSize - LINK_GAP - MINIMAL_SLIDER_W;
             this.volumeSlider = new VolumeSlider(
-                    Position.of(this, width - PADDING - MINIMAL_SLIDER_W, (height - sliderH) / 2),
+                    Position.of(this, sliderX, (height - sliderH) / 2),
                     MINIMAL_SLIDER_W, sliderH, true);
 
             this.progressBar = null;
@@ -89,11 +96,15 @@ public class MusicPlayerWidget extends SpruceContainerWidget {
             this.linkButton = new LinkButton(Position.of(this, PADDING, PADDING), linkSize);
             this.addChild(this.linkButton);
 
+            int muteSize = textHeight;
             this.nameLabel = new ScaledLabel(
                     Position.of(this, nameX, PADDING),
-                    contentWidth - linkSize - LINK_GAP, textHeight, TEXT_SCALE,
+                    contentWidth - linkSize - LINK_GAP - muteSize - LINK_GAP, textHeight, TEXT_SCALE,
                     SpruceTextAlignment.LEFT, defaultName);
             this.addChild(this.nameLabel);
+
+            this.muteButton = new MuteButton(
+                    Position.of(this, PADDING + contentWidth - muteSize, PADDING), muteSize);
 
             int progressY = PADDING + textHeight + 4;
             int progressHeight = Math.max(2, height / 12);
@@ -118,9 +129,13 @@ public class MusicPlayerWidget extends SpruceContainerWidget {
         }
 
         this.volumeSlider.setValue(gainToSlider(ExternalMusicManager.getInstance().getSliderGain()));
-        this.volumeSlider.listener =
-                v -> ExternalMusicManager.getInstance().setSliderGain(sliderToGain(v));
+        this.volumeSlider.listener = v -> {
+            ExternalMusicManager emm = ExternalMusicManager.getInstance();
+            emm.setSliderGain(sliderToGain(v));
+            emm.setMuted(false);
+        };
         this.addChild(this.volumeSlider);
+        this.addChild(this.muteButton);
         this.tick();
     }
 
@@ -189,6 +204,31 @@ public class MusicPlayerWidget extends SpruceContainerWidget {
         @Override
         protected void extractWidgetRenderState(SpruceGuiGraphics g, int mx, int my, float d) {
             g.blitSprite(RenderPipelines.GUI_TEXTURED, ICON,
+                    this.getX(), this.getY(), this.getWidth(), this.getHeight());
+        }
+    }
+
+    private static final class MuteButton extends AbstractSpruceWidget {
+        private static final Identifier ICON_ON = Identifier.fromNamespaceAndPath("berlioz", "icon/volume_up");
+        private static final Identifier ICON_OFF = Identifier.fromNamespaceAndPath("berlioz", "icon/volume_off");
+
+        MuteButton(Position position, int size) {
+            super(position);
+            this.width = size;
+            this.height = size;
+        }
+
+        @Override
+        protected boolean onMouseClick(MouseButtonEvent event, boolean dbl) {
+            ExternalMusicManager emm = ExternalMusicManager.getInstance();
+            emm.setMuted(!emm.isMuted());
+            return true;
+        }
+
+        @Override
+        protected void extractWidgetRenderState(SpruceGuiGraphics g, int mx, int my, float d) {
+            Identifier icon = ExternalMusicManager.getInstance().isMuted() ? ICON_OFF : ICON_ON;
+            g.blitSprite(RenderPipelines.GUI_TEXTURED, icon,
                     this.getX(), this.getY(), this.getWidth(), this.getHeight());
         }
     }

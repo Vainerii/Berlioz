@@ -1,5 +1,9 @@
 package vai.berlioz.client.music.loader;
 
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import net.fabricmc.loader.api.FabricLoader;
 
 import java.io.*;
@@ -10,6 +14,8 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.PosixFilePermission;
 import java.security.MessageDigest;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.HashSet;
 import java.util.HexFormat;
 import java.util.Set;
@@ -33,14 +39,23 @@ public class BinaryManager {
     private static final String YTDLP_BASE = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/";
 
     private static final String FFMPEG_WIN_URL =
-            "https://www.gyan.dev/ffmpeg/builds/packages/ffmpeg-8.1.1-essentials_build.zip";
+            "https://github.com/GyanD/codexffmpeg/releases/download/8.1.1/ffmpeg-8.1.1-essentials_build.zip";
     private static final String FFMPEG_WIN_SHA256 =
             "6f58ce889f59c311410f7d2b18895b33c03456463486f3b1ebc93d97a0f54541";
-    // maybe too short, 2 years of retention, but it is only for linux and we expect to update faster than every 2 years ofc
+    // BtbN only keeps month-end autobuilds (~2 years); mid-month daily builds are deleted within days.
+    // Always pin a month-end tag, release branch build (n8.1.x) rather than master (N-xxxxx).
     private static final String FFMPEG_LIN_URL =
-            "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-06-20-13-30/ffmpeg-N-125136-gb57ff00bcf-linux64-gpl.tar.xz";
+            "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-09-30-13-08/ffmpeg-n8.1.3-9-g29e619e767-linux64-gpl-8.1.tar.xz";
     private static final String FFMPEG_LIN_SHA256 =
-            "e73c0658d2b778e92d5367d3b47368c86f1589ae93764ea74cdca9e213fbba59";
+            "97ce978979194b5cf7e06a5e68020dbdaa7a4f3294c5452b6a1bc347100dbb79";
+    // Fallback when a pinned Windows/Linux URL is dead: the newest BtbN build that is at least
+    // FALLBACK_MIN_AGE old, so a malicious release has had time to be caught and pulled.
+    private static final String BTBN_RELEASES_API =
+            "https://api.github.com/repos/BtbN/FFmpeg-Builds/releases?per_page=100";
+    private static final Duration FALLBACK_MIN_AGE = Duration.ofDays(7);
+    private static final String FALLBACK_PREFIX = "ffmpeg-n8.1";
+    private static final String FALLBACK_WIN_SUFFIX = "-win64-gpl-8.1.zip";
+    private static final String FALLBACK_LIN_SUFFIX = "-linux64-gpl-8.1.tar.xz";
     private static final String FFMPEG_MAC_URL =
             "https://evermeet.cx/ffmpeg/ffmpeg-8.1.2.zip";
     private static final String FFMPEG_MAC_SHA256 =
@@ -118,8 +133,7 @@ public class BinaryManager {
         switch (OS) {
             // Each archive is verified against its hash before extraction
             case "windows" -> {
-                BinaryManager.download(FFMPEG_WIN_URL, tmp);
-                BinaryManager.verifyArchive(tmp, FFMPEG_WIN_SHA256);
+                BinaryManager.downloadPinnedOrFallback(FFMPEG_WIN_URL, FFMPEG_WIN_SHA256, FALLBACK_WIN_SUFFIX, tmp);
                 BinaryManager.extractZipEntry(tmp, "bin/ffmpeg.exe", dest);
             }
             case "macos" -> {
@@ -128,8 +142,7 @@ public class BinaryManager {
                 BinaryManager.extractZipEntry(tmp, "ffmpeg", dest);
             }
             default -> {
-                BinaryManager.download(FFMPEG_LIN_URL, tmp);
-                BinaryManager.verifyArchive(tmp, FFMPEG_LIN_SHA256);
+                BinaryManager.downloadPinnedOrFallback(FFMPEG_LIN_URL, FFMPEG_LIN_SHA256, FALLBACK_LIN_SUFFIX, tmp);
                 BinaryManager.extractTarXz(tmp, dest);
             }
         }
@@ -138,6 +151,83 @@ public class BinaryManager {
         BinaryManager.makeExecutable(dest);
         if (OS.equals("macos")) BinaryManager.removeQuarantine(dest);
         return dest;
+    }
+
+    /**
+     * Downloads the pinned archive and verifies it against its pinned hash. Only when the pinned link
+     * is dead (I/O error, typically a 404) does it fall back to a recent BtbN build. A hash mismatch on
+     * the pinned file is never a reason to fall back: it may mean tampering, so it propagates.
+     */
+    private static void downloadPinnedOrFallback(String url, String sha256, String assetSuffix, Path dest)
+            throws Exception {
+        try {
+            BinaryManager.download(url, dest);
+        } catch (IOException pinnedError) {
+            System.getLogger("Berlioz/Binary").log(System.Logger.Level.WARNING,
+                "Pinned ffmpeg URL unavailable (" + pinnedError + "), falling back to a BtbN build at least "
+                    + FALLBACK_MIN_AGE.toDays() + " days old. Please update the pinned URL.");
+            try {
+                BinaryManager.downloadFallback(assetSuffix, dest);
+            } catch (Exception fallbackError) {
+                fallbackError.addSuppressed(pinnedError);
+                throw fallbackError;
+            }
+            return;
+        }
+        BinaryManager.verifyArchive(dest, sha256);
+    }
+
+    /**
+     * Picks the newest BtbN release published at least FALLBACK_MIN_AGE ago that has a matching asset,
+     * then verifies the download against that release's checksums.sha256.
+     */
+    private static void downloadFallback(String assetSuffix, Path dest) throws Exception {
+        JsonArray releases = JsonParser.parseString(BinaryManager.downloadString(BTBN_RELEASES_API))
+                .getAsJsonArray();
+        Instant cutoff = Instant.now().minus(FALLBACK_MIN_AGE);
+        Instant bestDate = null;
+        String assetUrl = null;
+        String assetName = null;
+        String sumsUrl = null;
+        for (JsonElement releaseElement : releases) {
+            JsonObject release = releaseElement.getAsJsonObject();
+            // "latest" is rebuilt in place every day, so its date says nothing about its content's age
+            if ("latest".equals(release.get("tag_name").getAsString())) continue;
+            if (!release.has("published_at") || release.get("published_at").isJsonNull()) continue;
+            Instant published = Instant.parse(release.get("published_at").getAsString());
+            if (published.isAfter(cutoff)) continue;
+            if (bestDate != null && !published.isAfter(bestDate)) continue;
+
+            String foundUrl = null;
+            String foundName = null;
+            String foundSums = null;
+            for (JsonElement assetElement : release.getAsJsonArray("assets")) {
+                JsonObject asset = assetElement.getAsJsonObject();
+                String name = asset.get("name").getAsString();
+                String url = asset.get("browser_download_url").getAsString();
+                if (name.equals("checksums.sha256")) {
+                    foundSums = url;
+                } else if (name.startsWith(FALLBACK_PREFIX) && name.endsWith(assetSuffix)) {
+                    foundUrl = url;
+                    foundName = name;
+                }
+            }
+            if (foundUrl != null && foundSums != null) {
+                bestDate = published;
+                assetUrl = foundUrl;
+                assetName = foundName;
+                sumsUrl = foundSums;
+            }
+        }
+        if (assetUrl == null) {
+            throw new IOException("No BtbN fallback build matching *" + assetSuffix + " older than "
+                + FALLBACK_MIN_AGE.toDays() + " days");
+        }
+        String expected = BinaryManager.fetchExpectedHash(sumsUrl, assetName);
+        BinaryManager.download(assetUrl, dest);
+        BinaryManager.verifySha256(dest, expected);
+        System.getLogger("Berlioz/Binary").log(System.Logger.Level.INFO,
+            "ffmpeg installed from fallback " + assetName + " (published " + bestDate + ")");
     }
 
     private static void extractZipEntry(Path zip, String suffix, Path dest) throws Exception {

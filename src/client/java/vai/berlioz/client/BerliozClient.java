@@ -4,6 +4,7 @@ import net.fabricmc.api.ClientModInitializer;
 import vai.berlioz.Berlioz;
 import vai.berlioz.client.config.BerliozConfig;
 import vai.berlioz.client.gui.MusicPlayerOverlay;
+import vai.berlioz.client.gui.SoundOptionsButton;
 import vai.berlioz.client.input.BerliozKeys;
 import vai.berlioz.client.music.loader.ExternalMusicManager;
 import vai.berlioz.client.network.BerliozClientNetwork;
@@ -20,6 +21,7 @@ public class BerliozClient implements ClientModInitializer {
 		ExternalMusicManager.register();
 		BerliozKeys.register();
 		MusicPlayerOverlay.register();
+		SoundOptionsButton.register();
 		WorldEditTracker.register();
 	}
 }

@@ -92,30 +92,45 @@ public final class BerliozClientNetwork {
             ExternalMusicManager.getInstance().preload(url);
         });
         registerReceiver(MessageType.PLAY_ORDER, (_, body) -> {
-            if (body.length < Float.BYTES + 2) return;
-            ByteBuffer buf = ByteBuffer.wrap(body);
-            float offset = buf.getFloat();
-            boolean paused = buf.get() != 0;
+            float offset;
+            boolean paused;
+            byte kind;
+            String url;
+            float fade;
+            try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(body))) {
+                offset = in.readFloat();
+                paused = in.readBoolean();
+                kind = in.readByte();
+                url = in.readUTF();
+                fade = BerliozClientNetwork.readOptionalFloat(in, MusicChannel.FADE_CLIENT_DEFAULT);
+            } catch (IOException e) {
+                LOGGER.warn("Invalid play order packet");
+                return;
+            }
             // Server kind byte: 0=DJ, 1=ambient, 2=server
-            MusicChannel.Bus bus = switch (buf.get()) {
+            MusicChannel.Bus bus = switch (kind) {
                 case 1 -> MusicChannel.Bus.AMBIENT;
                 case 2 -> MusicChannel.Bus.SERVER;
                 default -> MusicChannel.Bus.DJ;
             };
-            byte[] urlBytes = new byte[buf.remaining()];
-            buf.get(urlBytes);
-            String url = new String(urlBytes, StandardCharsets.UTF_8);
             if (!ServerTrustManager.allowsImposedFetch()) {
                 ServerTrustManager.notifyBlockedTrack(url);
                 return;
             }
-            LOGGER.info("Broadcast play order: {} @ {}s (paused={}, bus={})", url, offset, paused, bus);
+            LOGGER.info("Broadcast play order: {} @ {}s (paused={}, bus={}, fade={})", url, offset, paused, bus, fade);
             ExternalMusicManager mgr = ExternalMusicManager.getInstance();
-            mgr.loadAt(url, offset, bus, err -> LOGGER.warn("Failed broadcast track {}: {}", url, err));
+            mgr.loadAt(url, offset, bus, fade, err -> LOGGER.warn("Failed broadcast track {}: {}", url, err));
             if (paused) mgr.pause();
         });
-        registerReceiver(MessageType.STOP_ORDER, (_, _) ->
-                ExternalMusicManager.getInstance().fadeOutAndStop());
+        registerReceiver(MessageType.STOP_ORDER, (_, body) -> {
+            float fade = MusicChannel.FADE_CLIENT_DEFAULT;
+            try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(body))) {
+                fade = BerliozClientNetwork.readOptionalFloat(in, MusicChannel.FADE_CLIENT_DEFAULT);
+            } catch (IOException ignored) {
+                // Unreadable optional field: keep the client default
+            }
+            ExternalMusicManager.getInstance().fadeOutAndStop(fade);
+        });
         registerReceiver(MessageType.PAUSE_ORDER, (_, _) ->
                 ExternalMusicManager.getInstance().pause());
         registerReceiver(MessageType.RESUME_ORDER, (_, _) ->
@@ -126,11 +141,11 @@ public final class BerliozClientNetwork {
         });
 
         PlaylistPlayer player = PlaylistPlayer.get();
-        player.onPlayStarted = url -> broadcastStart(url, player.getRadius());
+        player.onPlayStarted = url -> broadcastStart(url, player.getRadius(), player.getFade());
         player.onPaused = BerliozClientNetwork::broadcastPause;
         player.onResumed = BerliozClientNetwork::broadcastResume;
-        player.onStopped = BerliozClientNetwork::broadcastStop;
-        player.onSeek = BerliozClientNetwork::broadcastSeek;
+        player.onStopped = () -> broadcastStop(player.getFade());
+        player.onSeek = seconds -> broadcastSeek(seconds, player.getFade());
         player.onListenerTrackEnded = BerliozClientNetwork::askNext;
         player.onUpcoming = urls -> {
             int radius = player.getRadius();
@@ -161,8 +176,16 @@ public final class BerliozClientNetwork {
         send(MessageType.CACHE_REQUEST, radiusUrlBody(url, radius));
     }
 
-    public static void broadcastStart(String url, int radius) {
-        send(MessageType.BROADCAST_START, radiusUrlBody(url, radius));
+    public static void broadcastStart(String url, int radius, float fade) {
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        try (DataOutputStream out = new DataOutputStream(baos)) {
+            out.writeInt(radius);
+            out.writeUTF(url);
+            out.writeFloat(fade);
+        } catch (IOException e) {
+            return;
+        }
+        send(MessageType.BROADCAST_START, baos.toByteArray());
     }
 
     public static void broadcastPause() {
@@ -173,13 +196,17 @@ public final class BerliozClientNetwork {
         send(MessageType.BROADCAST_RESUME, EMPTY);
     }
 
-    public static void broadcastStop() {
-        send(MessageType.BROADCAST_STOP, EMPTY);
+    public static void broadcastStop(float fade) {
+        send(MessageType.BROADCAST_STOP, ByteBuffer.allocate(Float.BYTES).putFloat(fade).array());
     }
 
-    public static void broadcastSeek(float offsetSeconds) {
-        send(MessageType.BROADCAST_SEEK, ByteBuffer.allocate(Float.BYTES).putFloat(offsetSeconds)
-                .array());
+    public static void broadcastSeek(float offsetSeconds, float fade) {
+        send(MessageType.BROADCAST_SEEK, ByteBuffer.allocate(Float.BYTES * 2)
+                .putFloat(offsetSeconds).putFloat(fade).array());
+    }
+
+    private static float readOptionalFloat(DataInputStream in, float fallback) throws IOException {
+        return in.available() >= Float.BYTES ? in.readFloat() : fallback;
     }
 
     // Ambient zones

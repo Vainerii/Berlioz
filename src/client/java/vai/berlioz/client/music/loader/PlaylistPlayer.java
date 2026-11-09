@@ -29,7 +29,8 @@ public final class PlaylistPlayer {
     private Repeat repeat = Repeat.OFF;
     private boolean playing = false;
     private boolean paused = false;
-    private int radius = 8;
+    private int radius = 3;
+    private float fade = 1f;
     // Consecutive stream failures to avoid spamming
     private int consecutiveErrors = 0;
 
@@ -88,6 +89,14 @@ public final class PlaylistPlayer {
         this.radius = Math.max(1, blocks);
     }
 
+    public float getFade() {
+        return fade;
+    }
+
+    public void setFade(float seconds) {
+        this.fade = Math.max(0f, seconds);
+    }
+
     public void play(int index) {
         Playlist.Music music = PlaylistManager.getInstance().get(index);
         if (music == null) return;
@@ -125,6 +134,11 @@ public final class PlaylistPlayer {
         if (wasActive) {
             this.onStopped.run();
         }
+    }
+
+    public void resetForNewPlaylist() {
+        stop();
+        this.currentIndex = -1;
     }
 
     public void autoAdvance() {

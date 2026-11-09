@@ -15,6 +15,10 @@ public final class MusicChannel {
 
     private static final Logger LOGGER = LoggerFactory.getLogger("Berlioz/Channel");
 
+    public static final float FADE_CLIENT_DEFAULT = -1f;
+
+    private static final float TICKS_PER_SECOND = 20f;
+
     private final String name;
 
     private MusicSourcePlayer currentPlayer = null;
@@ -22,10 +26,19 @@ public final class MusicChannel {
 
     private Bus bus = Bus.DJ;
     private float sliderGain = 1f;
+    private boolean muted = false;
     private float fadeGain = 1f;
     private float fadeTarget = 1f;
     private float fadeStep = 0f;
     private boolean stopAfterFade = false;
+
+    private MusicSourcePlayer outgoingPlayer = null;
+    private Bus outgoingBus = Bus.DJ;
+    private float outgoingGain = 0f;
+    private float outgoingStep = 0f;
+    private int holdTicks = 0;
+    private float fadeInAfterHold = 0f;
+    private volatile int generation = 0;
 
     private volatile boolean trackFinishedPending = false;
     private volatile boolean trackErroredPending = false;
@@ -46,6 +59,8 @@ public final class MusicChannel {
             p.tick();
             advanceFade();
         }
+        advanceOutgoing();
+        if (holdTicks > 0 && --holdTicks == 0) endHold();
         if (trackFinishedPending) {
             trackFinishedPending = false;
             handleTrackFinished();
@@ -56,32 +71,86 @@ public final class MusicChannel {
         }
     }
 
-    public void loadAt(String url, float offsetSeconds, Bus bus, Consumer<String> onError) {
+    public void loadAt(String url, float offsetSeconds, Bus bus, float fadeSeconds, Consumer<String> onError) {
         if (!ExternalMusicManager.isOriginAllowed(url)) {
             onError.accept("This source is disabled in the Berlioz config");
             return;
         }
-        if (currentPlayer != null) currentPlayer.stop();
+        float total = MusicChannel.resolveFade(fadeSeconds);
+        boolean audible = currentPlayer != null && !trackFinishedPending && holdTicks == 0;
+        float fadeOut = 0f;
+        float fadeIn = 0f;
+        if (audible && total > 0f) {
+            if (url.equals(currentUrl) || bus == Bus.AMBIENT) {
+                fadeOut = total / 2f;
+                fadeIn = total / 2f;
+            } else {
+                fadeOut = total;
+            }
+        }
+
+        stopOutgoing();
+        if (currentPlayer != null) {
+            if (fadeOut > 0f) {
+                outgoingPlayer = currentPlayer;
+                outgoingBus = this.bus;
+                outgoingGain = fadeGain;
+                outgoingStep = outgoingGain / MusicChannel.ticks(fadeOut);
+            } else {
+                currentPlayer.stop();
+            }
+        }
+        resetFadeFull();
+
         this.bus = bus;
         this.currentUrl = url;
-        LOGGER.info("[{}] Loading ordered URL at {}s: {}", name, offsetSeconds, url);
+        LOGGER.info("[{}] Loading ordered URL at {}s (fade out {}s, in {}s): {}",
+                name, offsetSeconds, fadeOut, fadeIn, url);
+        int gen = ++generation;
+        trackFinishedPending = false;
+        trackErroredPending = false;
         Consumer<String> reportAndAdvance = err -> {
             onError.accept(err);
-            this.trackErroredPending = true;
+            if (gen == this.generation) this.trackErroredPending = true;
         };
         currentPlayer = ExternalMusicManager.createPlayer(url, reportAndAdvance);
-        fadeGain = 0f;
-        wireFinish(currentPlayer);
+        currentPlayer.setOnFinished(() -> {
+            if (gen == this.generation) this.trackFinishedPending = true;
+        });
+        if (outgoingPlayer != null) {
+            holdTicks = MusicChannel.ticks(fadeOut);
+            fadeInAfterHold = fadeIn;
+            fadeGain = 0f;
+            fadeTarget = 0f;
+        }
         applyGain();
         currentPlayer.setTime(offsetSeconds);
-        fadeTo(1f, BerliozConfig.get().fade, false);
     }
 
     public void fadeOutAndStop() {
-        if (currentPlayer != null) fadeTo(0f, BerliozConfig.get().fade, true);
+        fadeOutAndStop(FADE_CLIENT_DEFAULT);
+    }
+
+    public void fadeOutAndStop(float fadeSeconds) {
+        if (currentPlayer == null) return;
+        if (holdTicks > 0) {
+            // Still silent behind an outgoing fade: nothing to fade, the outgoing one finishes on its own
+            currentPlayer.stop();
+            currentPlayer = null;
+            resetFadeFull();
+            return;
+        }
+        fadeTo(0f, MusicChannel.resolveFade(fadeSeconds), true);
     }
 
     public void pause() {
+        stopOutgoing();
+        if (holdTicks > 0) {
+            holdTicks = 0;
+            fadeGain = 1f;
+            fadeTarget = 1f;
+            applyGain();
+        }
         if (currentPlayer != null) currentPlayer.pause();
     }
 
@@ -90,6 +159,7 @@ public final class MusicChannel {
     }
 
     public void stop() {
+        stopOutgoing();
         if (currentPlayer != null) {
             LOGGER.info("[{}] Stopping playback.", name);
             currentPlayer.stop();
@@ -135,29 +205,53 @@ public final class MusicChannel {
         return sliderGain;
     }
 
+    public void setMuted(boolean muted) {
+        this.muted = muted;
+        applyGain();
+    }
+
+    public boolean isMuted() {
+        return muted;
+    }
+
     void onSoundEngineReload() {
         MusicSourcePlayer p = currentPlayer;
         if (p != null) p.onSoundEngineReload();
+        MusicSourcePlayer out = outgoingPlayer;
+        if (out != null) out.onSoundEngineReload();
     }
 
     // 80 seems reasonable but idk
     private static final double FADE_FLOOR_DB = -80.0;
 
     private void applyGain() {
-        if (currentPlayer != null) {
-            currentPlayer.setVolume(busVolume() * sliderGain * curvedFade() * BerliozConfig.get().volGlobal);
-        }
+        if (currentPlayer != null) currentPlayer.setVolume(volumeFor(bus, fadeGain));
+        if (outgoingPlayer != null) outgoingPlayer.setVolume(volumeFor(outgoingBus, outgoingGain));
     }
 
-    private float curvedFade() {
-        if (fadeGain <= 0f) return 0f;
-        if (fadeGain >= 1f) return 1f;
-        return (float) Math.pow(10.0, FADE_FLOOR_DB * (1f - fadeGain) / 20.0);
+    private float volumeFor(Bus target, float gain) {
+        float mute = muted ? 0f : 1f;
+        return MusicChannel.busVolume(target) * sliderGain * mute * MusicChannel.curvedFade(gain)
+                * BerliozConfig.get().volGlobal;
     }
 
-    private float busVolume() {
+    private static float curvedFade(float gain) {
+        if (gain <= 0f) return 0f;
+        if (gain >= 1f) return 1f;
+        return (float) Math.pow(10.0, FADE_FLOOR_DB * (1f - gain) / 20.0);
+    }
+
+    private static float resolveFade(float fadeSeconds) {
+        return fadeSeconds >= 0f ? fadeSeconds : Math.max(0f, BerliozConfig.get().fade);
+    }
+
+    private static int ticks(float seconds) {
+        return Math.max(1, Math.round(seconds * TICKS_PER_SECOND));
+    }
+
+    private static float busVolume(Bus target) {
         BerliozConfig cfg = BerliozConfig.get();
-        return switch (bus) {
+        return switch (target) {
             case SERVER -> cfg.volServer;
             case DJ -> cfg.volDj;
             case AMBIENT -> cfg.volAmbient;
@@ -170,12 +264,47 @@ public final class MusicChannel {
         fadeTarget = 1f;
         fadeStep = 0f;
         stopAfterFade = false;
+        holdTicks = 0;
+        fadeInAfterHold = 0f;
+    }
+
+    private void endHold() {
+        if (currentPlayer == null) return;
+        if (fadeInAfterHold > 0f) {
+            fadeTo(1f, fadeInAfterHold, false);
+        } else {
+            fadeGain = 1f;
+            fadeTarget = 1f;
+            applyGain();
+        }
+        fadeInAfterHold = 0f;
+    }
+
+    private void advanceOutgoing() {
+        MusicSourcePlayer out = outgoingPlayer;
+        if (out == null) return;
+        out.tick();
+        outgoingGain -= outgoingStep;
+        if (outgoingGain <= 0f) {
+            stopOutgoing();
+        } else {
+            out.setVolume(volumeFor(outgoingBus, outgoingGain));
+        }
+    }
+
+    private void stopOutgoing() {
+        if (outgoingPlayer != null) {
+            outgoingPlayer.stop();
+            outgoingPlayer = null;
+        }
+        outgoingGain = 0f;
+        outgoingStep = 0f;
     }
 
     private void fadeTo(float target, float seconds, boolean stopAtEnd) {
         this.fadeTarget = target;
         this.stopAfterFade = stopAtEnd;
-        this.fadeStep = (target - fadeGain) / Math.max(1f, seconds * 20f);  // ~20 client ticks/s
+        this.fadeStep = (target - fadeGain) / Math.max(1f, seconds * TICKS_PER_SECOND);
         if (this.fadeStep == 0f) {
             fadeGain = target;
             applyGain();
@@ -194,10 +323,6 @@ public final class MusicChannel {
             stopAfterFade = false;
             stop();
         }
-    }
-
-    private void wireFinish(MusicSourcePlayer player) {
-        player.setOnFinished(() -> this.trackFinishedPending = true);
     }
 
     private void handleTrackFinished() {

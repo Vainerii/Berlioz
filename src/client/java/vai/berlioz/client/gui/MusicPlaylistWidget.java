@@ -21,6 +21,7 @@ import vai.berlioz.client.network.BerliozClientNetwork;
 import java.util.function.Consumer;
 import java.util.function.DoubleConsumer;
 import java.util.function.IntConsumer;
+import java.util.function.Predicate;
 
 /** Music player widget. */
 public class MusicPlaylistWidget extends SpruceContainerWidget {
@@ -34,6 +35,9 @@ public class MusicPlaylistWidget extends SpruceContainerWidget {
     private static final int RADIUS_ROW_H = 16;
     private static final int RADIUS_FIELD_W = 26;
     private static final int SPIN_BTN_W = 10;
+    private static final int SPIN_ROW_GAP = 2;
+    private static final float FADE_STEP = 0.5f;
+    private static final float FADE_MAX = 30f;
     private static final int ADD_BTN_H = GuiStyle.ADD_BUTTON_H;
     private static final int URL_FIELD_H = GuiStyle.URL_FIELD_H;
     private static final float TEXT_SCALE = GuiStyle.TEXT_SCALE;
@@ -56,6 +60,8 @@ public class MusicPlaylistWidget extends SpruceContainerWidget {
 
     private static final Identifier ICON_PLAYLIST_ADD =
             Identifier.fromNamespaceAndPath("berlioz", "icon/playlist_add");
+    private static final Identifier ICON_PLAYLIST_REMOVE =
+            Identifier.fromNamespaceAndPath("berlioz", "icon/playlist_remove");
     private static final Identifier ICON_SETTINGS =
             Identifier.fromNamespaceAndPath("berlioz", "icon/settings");
 
@@ -77,6 +83,7 @@ public class MusicPlaylistWidget extends SpruceContainerWidget {
     private final ToggleButton repeatAllBtn;
     private final ToggleButton repeatOneBtn;
     private final SpruceTextFieldWidget radiusField;
+    private final SpruceTextFieldWidget fadeField;
     private final SpruceTextFieldWidget urlField;
     private final TrackListWidget playlistView;
     private final PlayerBar playerBar;
@@ -85,23 +92,28 @@ public class MusicPlaylistWidget extends SpruceContainerWidget {
     private RepeatMode repeatMode = RepeatMode.OFF;
     private boolean randomEnabled = false;
     private int radiusValue = 3;
+    private float fadeValue = 1f;
     private boolean suppressFieldListener = false;
 
     public Consumer<PlaybackState> onPlaybackChanged = _ -> { };
     public Consumer<RepeatMode> onRepeatChanged = _ -> { };
     public Consumer<Boolean> onRandomChanged = _ -> { };
     public IntConsumer onRadiusChanged = _ -> { };
+    public Consumer<Float> onFadeChanged = _ -> { };
     public Runnable onPrevious = () -> { };
     public Runnable onNext = () -> { };
     public Consumer<String> onAddToPlaylist = _ -> { };
+    public Runnable onClearPlaylist = () -> { };
     public IntConsumer onPlayTrack = _ -> { };
     public DoubleConsumer onSeek = _ -> { };
 
     public Runnable onOpenAmbient = () -> { };
     public Runnable onOpenConfig = () -> { };
 
-    public MusicPlaylistWidget(Position position, int height) {
+    public MusicPlaylistWidget(Position position, int height, int initialRadius, float initialFade) {
         super(position, WIDTH, height);
+        this.radiusValue = Math.max(1, initialRadius);
+        this.fadeValue = Math.max(0f, Math.min(FADE_MAX, initialFade));
 
         this.setBackground(new SimpleColorBackground(GuiStyle.PANEL_BG));
         this.setBorder(new SimpleBorder(1, GuiStyle.PANEL_BORDER));
@@ -161,53 +173,37 @@ public class MusicPlaylistWidget extends SpruceContainerWidget {
 
         int row3Y = row2Y + BTN_SIZE + ROW_GAP * 2;
         Font font = Minecraft.getInstance().font;
-        Component radiusText = Component.translatable("berlioz.playlist.radius").append(" :");
-        int labelW = (int) Math.ceil(font.width(radiusText) * TEXT_SCALE) + 3;
+        Component radiusText = Component.translatable("berlioz.playlist.radius");
+        Component fadeText = Component.translatable("berlioz.playlist.fade");
+        int labelW = (int) Math.ceil(Math.max(font.width(radiusText), font.width(fadeText)) * TEXT_SCALE) + 3;
+        int spinRowW = labelW + RADIUS_FIELD_W + SPIN_BTN_W;
+        int spinRowX = (WIDTH - spinRowW) / 2;
 
-        int radiusRowW = labelW + RADIUS_FIELD_W + SPIN_BTN_W;
-        int radiusRowX = (WIDTH - radiusRowW) / 2;
+        this.radiusField = addSpinRow(spinRowX, row3Y, labelW, radiusText,
+                Integer.toString(this.radiusValue), s -> s.isEmpty() || s.matches("[1-9][0-9]*"),
+                s -> {
+                    int v = Integer.parseInt(s);
+                    if (v >= 1 && v != this.radiusValue) {
+                        this.radiusValue = v;
+                        this.onRadiusChanged.accept(v);
+                    }
+                },
+                () -> setRadius(this.radiusValue + 1), () -> setRadius(this.radiusValue - 1));
 
-        int labelY = row3Y + Math.round((RADIUS_ROW_H - font.lineHeight * TEXT_SCALE) / 2f);
-        ScaledLabel radiusLabel = new ScaledLabel(
-                Position.of(this, radiusRowX, labelY), labelW, radiusText);
-        this.addChild(radiusLabel);
-
-        int fieldX = radiusRowX + labelW;
-        int fieldW = RADIUS_FIELD_W;
-        this.radiusField = new SpruceTextFieldWidget(
-                Position.of(this, fieldX, row3Y),
-                fieldW, RADIUS_ROW_H, Component.translatable("berlioz.playlist.radius"));
-        this.radiusField.setText(Integer.toString(this.radiusValue));
-        this.radiusField.setTextPredicate(s -> s.isEmpty() || s.matches("[1-9][0-9]*"));
-        this.radiusField.setChangedListener(s -> {
-            if (this.suppressFieldListener || s.isEmpty()) return;
-            try {
-                int v = Integer.parseInt(s);
-                if (v >= 1 && v != this.radiusValue) {
-                    this.radiusValue = v;
-                    this.onRadiusChanged.accept(v);
-                }
-            } catch (NumberFormatException ignored) { }
-        });
-        this.radiusField.setRenderTextProvider((str, ignored) ->
-                Component.literal(str)
-                        .withStyle(s -> s.withFont(FONT_DESC))
-                        .getVisualOrderText());
-        this.addChild(this.radiusField);
-
-        int spinX = fieldX + fieldW;
-        int halfH = RADIUS_ROW_H / 2;
-        SpinButton incBtn = new SpinButton(
-                Position.of(this, spinX, row3Y), SPIN_BTN_W, halfH, '+');
-        SpinButton decBtn = new SpinButton(
-                Position.of(this, spinX, row3Y + halfH), SPIN_BTN_W, RADIUS_ROW_H - halfH, '-');
-        incBtn.onClick = () -> setRadius(this.radiusValue + 1);
-        decBtn.onClick = () -> setRadius(this.radiusValue - 1);
-        this.addChild(incBtn);
-        this.addChild(decBtn);
+        int fadeRowY = row3Y + RADIUS_ROW_H + SPIN_ROW_GAP;
+        this.fadeField = addSpinRow(spinRowX, fadeRowY, labelW, fadeText,
+                MusicPlaylistWidget.formatFade(this.fadeValue), s -> s.isEmpty() || s.matches("\\d{0,2}([.,]\\d?)?"),
+                s -> {
+                    float v = Float.parseFloat(s.replace(',', '.'));
+                    if (v <= FADE_MAX && v != this.fadeValue) {
+                        this.fadeValue = v;
+                        this.onFadeChanged.accept(v);
+                    }
+                },
+                () -> setFade(this.fadeValue + FADE_STEP), () -> setFade(this.fadeValue - FADE_STEP));
 
         int textH = (int) Math.ceil(font.lineHeight * TEXT_SCALE);
-        int playerY = row3Y + RADIUS_ROW_H + ROW_GAP;
+        int playerY = fadeRowY + RADIUS_ROW_H + ROW_GAP;
         int playerH = textH + 2 + SEEK_RAIL_H + 2 + textH;
         this.playerBar = new PlayerBar(
                 Position.of(this, PADDING, playerY), WIDTH - PADDING * 2, playerH);
@@ -230,10 +226,55 @@ public class MusicPlaylistWidget extends SpruceContainerWidget {
                 Component.literal(str).withStyle(s -> s.withFont(FONT_DESC)).getVisualOrderText());
         this.addChild(this.urlField);
 
+        int clearGap = 2;
+        int addW = WIDTH - PADDING * 2 - ADD_BTN_H - clearGap;
         this.addChild(new WideButton(
                 Position.of(this, PADDING, addBtnY),
-                WIDTH - PADDING * 2, ADD_BTN_H,
+                addW, ADD_BTN_H,
                 Component.translatable("berlioz.playlist.add"), ICON_PLAYLIST_ADD, this::submitUrl));
+        this.addChild(new WideButton(
+                Position.of(this, PADDING + addW + clearGap, addBtnY),
+                ADD_BTN_H, ADD_BTN_H,
+                Component.empty(), ICON_PLAYLIST_REMOVE, () -> this.onClearPlaylist.run()));
+    }
+
+    private SpruceTextFieldWidget addSpinRow(int x, int y, int labelW, Component label, String initial,
+            Predicate<String> filter, Consumer<String> onValidText, Runnable onInc, Runnable onDec) {
+        Font font = Minecraft.getInstance().font;
+        int labelY = y + Math.round((RADIUS_ROW_H - font.lineHeight * TEXT_SCALE) / 2f);
+        this.addChild(new ScaledLabel(Position.of(this, x, labelY), labelW, label));
+
+        int fieldX = x + labelW;
+        SpruceTextFieldWidget field = new SpruceTextFieldWidget(
+                Position.of(this, fieldX, y), RADIUS_FIELD_W, RADIUS_ROW_H, label);
+        field.setText(initial);
+        field.setTextPredicate(filter);
+        field.setChangedListener(s -> {
+            if (this.suppressFieldListener || s.isEmpty()) return;
+            try {
+                onValidText.accept(s);
+            } catch (NumberFormatException ignored) { }
+        });
+        field.setRenderTextProvider((str, ignored) ->
+                Component.literal(str)
+                        .withStyle(s -> s.withFont(FONT_DESC))
+                        .getVisualOrderText());
+        this.addChild(field);
+
+        int spinX = fieldX + RADIUS_FIELD_W;
+        int halfH = RADIUS_ROW_H / 2;
+        SpinButton incBtn = new SpinButton(Position.of(this, spinX, y), SPIN_BTN_W, halfH, '+');
+        SpinButton decBtn = new SpinButton(
+                Position.of(this, spinX, y + halfH), SPIN_BTN_W, RADIUS_ROW_H - halfH, '-');
+        incBtn.onClick = onInc;
+        decBtn.onClick = onDec;
+        this.addChild(incBtn);
+        this.addChild(decBtn);
+        return field;
+    }
+
+    private static String formatFade(float seconds) {
+        return seconds == Math.floor(seconds) ? Integer.toString((int) seconds) : Float.toString(seconds);
     }
 
     private void submitUrl() {
@@ -260,6 +301,8 @@ public class MusicPlaylistWidget extends SpruceContainerWidget {
     public boolean isRandomEnabled() { return this.randomEnabled; }
 
     public int getRadius() { return this.radiusValue; }
+
+    public float getFade() { return this.fadeValue; }
 
     private void setPlaybackState(PlaybackState state) {
         applyPlaybackState(state);
@@ -302,6 +345,16 @@ public class MusicPlaylistWidget extends SpruceContainerWidget {
         this.radiusField.setText(Integer.toString(clamped));
         this.suppressFieldListener = false;
         this.onRadiusChanged.accept(clamped);
+    }
+
+    private void setFade(float newValue) {
+        float clamped = Math.max(0f, Math.min(FADE_MAX, newValue));
+        if (clamped == this.fadeValue) return;
+        this.fadeValue = clamped;
+        this.suppressFieldListener = true;
+        this.fadeField.setText(MusicPlaylistWidget.formatFade(clamped));
+        this.suppressFieldListener = false;
+        this.onFadeChanged.accept(clamped);
     }
 
     private static final class ToggleButton extends AbstractSpruceWidget {

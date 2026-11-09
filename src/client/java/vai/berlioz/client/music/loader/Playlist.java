@@ -59,6 +59,19 @@ public class Playlist {
         notifyChanged();
     }
 
+    public void addResolvedAll(List<PlaylistImporter.Entry> entries) {
+        for (PlaylistImporter.Entry e : entries) {
+            content.add(new Music(e.url(), e.title(), e.duration()));
+        }
+        notifyChanged();
+    }
+
+    public void clear() {
+        if (content.isEmpty()) return;
+        content.clear();
+        notifyChanged();
+    }
+
     public void removeMusic(int index) {
         if (index >= 0 && index < content.size()) {
             content.remove(index);

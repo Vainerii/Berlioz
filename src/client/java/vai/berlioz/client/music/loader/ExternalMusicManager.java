@@ -65,12 +65,17 @@ public class ExternalMusicManager {
         // sfx.onSoundEngineReload();
     }
 
-    public void loadAt(String url, float offsetSeconds, MusicChannel.Bus bus, Consumer<String> onError) {
-        music.loadAt(url, offsetSeconds, bus, onError);
+    public void loadAt(String url, float offsetSeconds, MusicChannel.Bus bus, float fadeSeconds,
+            Consumer<String> onError) {
+        music.loadAt(url, offsetSeconds, bus, fadeSeconds, onError);
     }
 
     public void fadeOutAndStop() {
         music.fadeOutAndStop();
+    }
+
+    public void fadeOutAndStop(float fadeSeconds) {
+        music.fadeOutAndStop(fadeSeconds);
     }
 
     public void pause() {
@@ -111,6 +116,14 @@ public class ExternalMusicManager {
 
     public float getSliderGain() {
         return music.getSliderGain();
+    }
+
+    public void setMuted(boolean muted) {
+        music.setMuted(muted);
+    }
+
+    public boolean isMuted() {
+        return music.isMuted();
     }
 
     public boolean isActive() {
