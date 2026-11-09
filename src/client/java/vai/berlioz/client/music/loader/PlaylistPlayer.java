@@ -136,6 +136,13 @@ public final class PlaylistPlayer {
         }
     }
 
+    public void resetOnDisconnect() {
+        this.playing = false;
+        this.paused = false;
+        this.consecutiveErrors = 0;
+        resetShuffle();
+    }
+
     public void resetForNewPlaylist() {
         stop();
         this.currentIndex = -1;

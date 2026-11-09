@@ -76,6 +76,11 @@ public final class BerliozClientNetwork {
             }
         });
 
+        ClientPlayConnectionEvents.DISCONNECT.register((_, _) -> {
+            ExternalMusicManager.getInstance().stop();
+            PlaylistPlayer.get().resetOnDisconnect();
+        });
+
         registerReceiver(MessageType.WELCOME, (_, body) ->
                 LOGGER.info("Server accepted handshake (server version: {})",
                         new String(body, StandardCharsets.UTF_8)));
