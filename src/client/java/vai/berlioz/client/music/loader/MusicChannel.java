@@ -41,6 +41,7 @@ public final class MusicChannel {
     private volatile int generation = 0;
 
     private volatile boolean trackFinishedPending = false;
+    private float lastFinishedDuration = 0f;
     private volatile boolean trackErroredPending = false;
 
     public Runnable onTrackFinished = () -> { };
@@ -188,6 +189,10 @@ public final class MusicChannel {
         return (currentPlayer != null) ? currentUrl : "";
     }
 
+    public float getLastFinishedDuration() {
+        return lastFinishedDuration;
+    }
+
     public boolean isActive() {
         return currentPlayer != null;
     }
@@ -326,11 +331,13 @@ public final class MusicChannel {
     }
 
     private void handleTrackFinished() {
+        lastFinishedDuration = currentPlayer != null ? currentPlayer.getDuration() : 0f;
         currentPlayer = null;
         onTrackFinished.run();
     }
 
     private void handleTrackError() {
+        lastFinishedDuration = 0f;  // an error says nothing about the track's length
         currentPlayer = null;
         resetFadeFull();
         onTrackError.run();

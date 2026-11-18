@@ -136,6 +136,13 @@ public final class BerliozClientNetwork {
             }
             ExternalMusicManager.getInstance().fadeOutAndStop(fade);
         });
+        registerReceiver(MessageType.SOURCE_ENDED, (_, body) -> {
+            try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(body))) {
+                PlaylistPlayer.get().onSourceEnded(in.readUTF());
+            } catch (IOException e) {
+                LOGGER.warn("Invalid source ended packet");
+            }
+        });
         registerReceiver(MessageType.PAUSE_ORDER, (_, _) ->
                 ExternalMusicManager.getInstance().pause());
         registerReceiver(MessageType.RESUME_ORDER, (_, _) ->
@@ -146,7 +153,8 @@ public final class BerliozClientNetwork {
         });
 
         PlaylistPlayer player = PlaylistPlayer.get();
-        player.onPlayStarted = url -> broadcastStart(url, player.getRadius(), player.getFade());
+        player.onPlayStarted = url -> broadcastStart(url, player.getRadius(), player.getFade(),
+                player.getCurrentDuration());
         player.onPaused = BerliozClientNetwork::broadcastPause;
         player.onResumed = BerliozClientNetwork::broadcastResume;
         player.onStopped = () -> broadcastStop(player.getFade());
@@ -181,12 +189,13 @@ public final class BerliozClientNetwork {
         send(MessageType.CACHE_REQUEST, radiusUrlBody(url, radius));
     }
 
-    public static void broadcastStart(String url, int radius, float fade) {
+    public static void broadcastStart(String url, int radius, float fade, float duration) {
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         try (DataOutputStream out = new DataOutputStream(baos)) {
             out.writeInt(radius);
             out.writeUTF(url);
             out.writeFloat(fade);
+            out.writeFloat(duration > 0f ? duration : -1f);
         } catch (IOException e) {
             return;
         }
@@ -251,7 +260,9 @@ public final class BerliozClientNetwork {
     }
 
     public static void askNext() {
-        send(MessageType.ASK_NEXT, EMPTY);
+        float duration = ExternalMusicManager.getInstance().getLastFinishedDuration();
+        send(MessageType.ASK_NEXT, ByteBuffer.allocate(Float.BYTES).putFloat(duration > 0f ? duration : -1f)
+                .array());
     }
 
     public static List<AmbientZoneData> getAmbientZones() {

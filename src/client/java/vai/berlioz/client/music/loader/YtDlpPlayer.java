@@ -95,11 +95,45 @@ public class YtDlpPlayer extends OpenALStreamPlayer {
 
         setSampleRate(SAMPLE_RATE);
 
+        StreamResult first = streamOnce(info.streamUrl(), seekSeconds, info.duration());
+        if (first.failed) {
+            CACHE.remove(url);
+            float resumeAt = seekSeconds + first.seconds;
+            LOGGER.warn("Stream failed after {}s ({}), retrying from {}s with a fresh URL: {}",
+                    first.seconds, first.reason, resumeAt, url);
+            ResolvedInfo fresh = resolveInfo();
+            if (Thread.currentThread().isInterrupted()) throw new InterruptedException();
+            StreamResult second = streamOnce(fresh.streamUrl(), resumeAt, fresh.duration());
+            if (second.failed) {
+                CACHE.remove(url);
+                throw new Exception("stream failed twice (" + second.reason + ")");
+            }
+        }
+        LOGGER.info("Streaming finished.");
+    }
+
+    private static final class StreamResult {
+        private final boolean failed;
+        private final float seconds;
+        private final String reason;
+
+        StreamResult(boolean failed, float seconds, String reason) {
+            this.failed = failed;
+            this.seconds = seconds;
+            this.reason = reason;
+        }
+    }
+
+    private static final float TRUNCATION_TOLERANCE_S = 5f;
+    private static final int BYTES_PER_SECOND = SAMPLE_RATE * 2 * 2;
+    private static final int STDERR_MAX_CHARS = 500;
+
+    private StreamResult streamOnce(String streamUrl, float seekSeconds, float duration) throws Exception {
         List<String> cmdFfmpeg = new ArrayList<>();
         cmdFfmpeg.add(BinaryManager.getFfmpeg().toString());
         cmdFfmpeg.add("-hide_banner");
         cmdFfmpeg.add("-loglevel");
-        cmdFfmpeg.add("quiet");
+        cmdFfmpeg.add("error");
         // Reconnect on problem (so the next track is not read in the middle of prev one).
         cmdFfmpeg.add("-reconnect");
         cmdFfmpeg.add("1");
@@ -112,7 +146,7 @@ public class YtDlpPlayer extends OpenALStreamPlayer {
             cmdFfmpeg.add(String.valueOf((int) seekSeconds));
         }
         cmdFfmpeg.add("-i");
-        cmdFfmpeg.add(info.streamUrl());
+        cmdFfmpeg.add(streamUrl);
         cmdFfmpeg.add("-f");
         cmdFfmpeg.add("s16le");
         cmdFfmpeg.add("-ar");
@@ -121,10 +155,11 @@ public class YtDlpPlayer extends OpenALStreamPlayer {
         cmdFfmpeg.add("2");
         cmdFfmpeg.add("pipe:1");
 
-        Process ffmpeg = new ProcessBuilder(cmdFfmpeg)
-            .redirectError(ProcessBuilder.Redirect.DISCARD)
-            .start();
+        Process ffmpeg = new ProcessBuilder(cmdFfmpeg).start();
         ffmpegProcess = ffmpeg;
+        StringBuilder stderr = new StringBuilder();
+        Thread errReader = YtDlpPlayer.drainStderr(ffmpeg, stderr);
+        long bytes = 0;
         try {
             LOGGER.info("Streaming started ({}Hz stereo).", SAMPLE_RATE);
             InputStream pcmIn = ffmpeg.getInputStream();
@@ -132,12 +167,46 @@ public class YtDlpPlayer extends OpenALStreamPlayer {
             int bytesRead;
             while (!Thread.currentThread().isInterrupted() && (bytesRead = pcmIn.read(buffer)) != -1) {
                 offerPcm(buffer, bytesRead);
+                bytes += bytesRead;
             }
+            if (Thread.currentThread().isInterrupted()) throw new InterruptedException();
+            ffmpeg.waitFor(5, java.util.concurrent.TimeUnit.SECONDS);
+            errReader.join(1000);
         } finally {
             destroySilently(ffmpeg);
             ffmpegProcess = null;
         }
-        LOGGER.info("Streaming finished.");
+
+        float seconds = (float) bytes / BYTES_PER_SECOND;
+        int exit = ffmpeg.isAlive() ? -1 : ffmpeg.exitValue();
+        String err;
+        synchronized (stderr) {
+            err = stderr.toString().strip();
+        }
+        if (exit != 0) {
+            return new StreamResult(true, seconds, "ffmpeg exit " + exit + (err.isEmpty() ? "" : ": " + err));
+        }
+        if (duration > 0 && seekSeconds < duration - TRUNCATION_TOLERANCE_S
+                && seekSeconds + seconds < duration - TRUNCATION_TOLERANCE_S) {
+            return new StreamResult(true, seconds, "stream cut at " + (seekSeconds + seconds) + "s of " + duration + "s");
+        }
+        return new StreamResult(false, seconds, "");
+    }
+
+    private static Thread drainStderr(Process process, StringBuilder sink) {
+        Thread t = new Thread(() -> {
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getErrorStream()))) {
+                for (String line; (line = reader.readLine()) != null; ) {
+                    synchronized (sink) {
+                        sink.append(line).append(' ');
+                        if (sink.length() > STDERR_MAX_CHARS) sink.delete(0, sink.length() - STDERR_MAX_CHARS);
+                    }
+                }
+            } catch (IOException ignored) {}
+        }, "BerliozFfmpegStderr");
+        t.setDaemon(true);
+        t.start();
+        return t;
     }
 
     @Override
@@ -146,9 +215,9 @@ public class YtDlpPlayer extends OpenALStreamPlayer {
         Process ff = ffmpegProcess;
         ytdlpProcess = null;
         ffmpegProcess = null;
+        super.stop();
         destroySilently(yt);
         destroySilently(ff);
-        super.stop();
     }
 
     public static void preload(String url, Runnable onDone, java.util.function.Consumer<String> onError) {

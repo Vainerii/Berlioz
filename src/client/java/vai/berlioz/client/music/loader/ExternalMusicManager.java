@@ -126,6 +126,10 @@ public class ExternalMusicManager {
         return music.isMuted();
     }
 
+    public float getLastFinishedDuration() {
+        return music.getLastFinishedDuration();
+    }
+
     public boolean isActive() {
         return music.isActive();
     }

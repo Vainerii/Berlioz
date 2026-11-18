@@ -7,7 +7,8 @@ public final class MessageType {
     public static final byte PERMISSION = 0x06; // S->C [byte playlist][byte ambient]
     public static final byte CACHE_REQUEST = 0x07; // C->S [int radius][raw utf8 url]
     public static final byte CACHE_ORDER = 0x08; // S->C [raw utf8 url]
-    public static final byte BROADCAST_START = 0x09; // C->S [int radius][UTF url][float fade?=-1]
+    // C->S [int radius][UTF url][float fade?=-1][float duration?=-1]; duration <= 0 means unknown
+    public static final byte BROADCAST_START = 0x09;
     // S->C [float offset][bool paused][byte kind][UTF url][float fade?=-1]; kind: 0=DJ 1=ambient 2=server
     public static final byte PLAY_ORDER = 0x0A;
     public static final byte BROADCAST_PAUSE = 0x0B; // C->S empty
@@ -22,7 +23,10 @@ public final class MessageType {
     public static final byte ZONE_SAVE = 0x14; // C->S [byte hasId][16B id(?)][str name][6 ints box][int n][str[] urls]
     public static final byte ZONE_DELETE = 0x15; // C->S [16B id]
     // Removed
-    public static final byte ASK_NEXT = 0x17; // C->S empty (listener finished an imposed track)
+    // C->S [float duration?=-1] a track ended on this client (the DJ too); duration of that track if known
+    public static final byte ASK_NEXT = 0x17;
+    // S->C [UTF url] to the DJ: the broadcast of url reached its end, advance the playlist
+    public static final byte SOURCE_ENDED = 0x18;
 
     private MessageType() {}
 }

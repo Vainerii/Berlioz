@@ -25,6 +25,7 @@ public final class PlaylistPlayer {
     private final Deque<Integer> history = new ArrayDeque<>();
 
     private int currentIndex = -1;
+    private String currentUrl = "";
     private boolean random = false;
     private Repeat repeat = Repeat.OFF;
     private boolean playing = false;
@@ -148,12 +149,16 @@ public final class PlaylistPlayer {
         this.currentIndex = -1;
     }
 
+    // A track ended here. Even the DJ only reports it: the server, which owns the broadcast timeline,
+    // answers with SOURCE_ENDED. The playlist then advances exactly once, also when the DJ was hearing
+    // something else (another broadcast has priority) and their own track never ended locally.
     public void autoAdvance() {
         this.consecutiveErrors = 0;
-        if (isImposed() || !playing) {
-            this.onListenerTrackEnded.run();
-            return;
-        }
+        this.onListenerTrackEnded.run();
+    }
+
+    public void onSourceEnded(String url) {
+        if (!playing || paused || !url.equals(currentUrl)) return;
         int index = (repeat == Repeat.ONE && currentIndex >= 0) ? currentIndex : nextIndex();
         if (index >= 0) {
             play(index);
@@ -219,7 +224,14 @@ public final class PlaylistPlayer {
         return ExternalMusicManager.getInstance().currentBus() != MusicChannel.Bus.DJ;
     }
 
+    // Known duration of the current track in seconds, 0 if not resolved yet
+    public float getCurrentDuration() {
+        Playlist.Music music = PlaylistManager.getInstance().get(currentIndex);
+        return music != null ? music.duration() : 0f;
+    }
+
     private void startUrl(String url) {
+        this.currentUrl = url;
         this.playing = true;
         this.paused = false;
         this.onPlayStarted.accept(url);
